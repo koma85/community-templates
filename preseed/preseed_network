@@ -1,0 +1,45 @@
+<% subnet = @host.subnet -%>
+<% dhcp = subnet.dhcp_boot_mode? -%>
+
+real=`ip -o link | grep <%= @host.mac -%> | awk '{print $2;}' | sed s/://`
+cat << EOF > /etc/network/interfaces
+#LoopBack
+auto lo
+iface lo inet loopback
+
+#<%= @host.primary_interface %>
+auto $real
+allow-hotplug $real
+iface $real inet <%= dhcp ? 'dhcp' : 'static' %>
+<% unless dhcp -%>
+    address <%= @host.ip %>
+    gateway <%= @host.subnet.gateway  %>
+    netmask <%= @host.subnet.mask  %>
+    dns-nameservers <%= @host.subnet.dns_primary %> <%= @host.subnet.dns_secondary %>
+    dns-search <%= @host.domain %>
+<% end %>
+EOF
+
+<% @host.interfaces.each do |interface| %>
+<% next if !interface.managed? || interface.subnet.nil? || interface.primary -%>
+<% subnet = interface.subnet -%>
+<% virtual = interface.virtual? -%>
+<% vlan = virtual && subnet.has_vlanid? -%>
+<% alias_type = virtual && !subnet.has_vlanid? && interface.identifier.include?(':') -%>
+<% dhcp = subnet.nil? ? false : subnet.dhcp_boot_mode? -%>
+real=`ip -o link | grep <%= interface.mac -%> | awk '{print $2;}' | sed s/:$//`
+<% if virtual -%>
+real=`echo <%= interface.identifier -%> | sed s/<%= interface.physical_device -%>/$real/`
+<% end -%>
+
+cat << EOF >> /etc/network/interfaces
+#<%= interface %>
+auto $real
+iface $real inet <%= dhcp ? 'dhcp' : 'static' %>
+<% unless dhcp -%>
+    address <%= interface.ip %>
+    netmask <%= subnet.mask %>
+<% end %>
+EOF
+<% end -%>
+<%# service networking restart #not useful in installation %>
